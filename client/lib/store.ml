@@ -7,14 +7,16 @@ module KV =
 
 module Str = KV.Make (Irmin.Contents.String)
 module Client = Irmin_client_jsoo.Make (Str)
-module Sync = Irmin.Sync.Make (Client)
+module Sync = Irmin.Sync.Make (Str)
 
 let get_path key = Str.Schema.Path.v key
 
 let get_value t k = Str.get t k
 
 let list t =
+  print_endline "LISTTTTT";
   let* store_list = Str.list t [] in
+  List.iter (fun (k, _ ) -> print_endline k) store_list;
   Lwt.return @@ List.map fst store_list
 
 let info message () =
@@ -30,11 +32,17 @@ let temporary_delete t k =
   let+ response = Str.remove ~info:(info "Deleting note") t k in
   match response with Ok () -> "Deleted..." | Error _ -> "Error deleting..."
 
+let cached_store = ref None
+
 let get_store () =
-  let config = Irmin_indexeddb.config "penit" in
-  let* store_repo = Str.Repo.v config in
-  let* store = Str.main store_repo in
-  Lwt.return store
+  match !cached_store with
+  | Some s -> Lwt.return s
+  | None ->
+    let config = Irmin_indexeddb.config "penit" in
+    let* store_repo = Str.Repo.v config in
+    let* store = Str.main store_repo in
+    cached_store := Some store;
+    Lwt.return store
 
 (* let push_store () =
   let uri = Uri.of_string "ws://localhost:9090/ws" in
@@ -50,10 +58,11 @@ let pull_store () =
   let* client = Client.connect uri in
   let* main = Client.main client in
   let* res = Client.ping client in
+  let* s = get_store () in
   match res with
   | Ok () -> (
     let* status =
-        Sync.pull_exn main (Irmin.Sync.remote_store (module Client) main) `Set
+        Sync.pull_exn s (Irmin.Sync.remote_store (module Client) main) `Set
       in
       match status with
       | `Empty -> Lwt.return "Synced returned empty"

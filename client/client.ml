@@ -143,26 +143,24 @@ let rec get_contents store files elem =
   match files with
   | [] -> Lwt.return ()
   | title :: other_titles ->
+      print_endline title;
       let* content = Store.get_value store [ title ] in
       let formatted_note = format_notes title content in
       El.append_children elem [ formatted_note ];
       get_contents store other_titles elem
 
 let display_notes elem =
-  let start () =
-    El.set_children elem [];
-    let* store = Store.get_store () in
-    let* files = Store.list store in
-    let* () = get_contents store files elem in
-    Lwt.return ()
-  in
-  Js_of_ocaml_lwt.Lwt_js_events.async start
+  El.set_children elem [];
+  let* store = Store.get_store () in
+  let* files = Store.list store in
+  let* () = get_contents store files elem in
+  Lwt.return ()
 
 let list_notes () =
   let note_list_div =
-    (Document.find_el_by_id G.document) (Jstr.v "note_list")
+    Option.get @@ (Document.find_el_by_id G.document) (Jstr.v "note_list")
   in
-  Option.iter (fun elem -> display_notes elem) note_list_div
+  display_notes note_list_div
 
 let preview_markdown note_content =
   let markdown_preview_btn =
@@ -182,21 +180,20 @@ let close_modal () =
   (* let push = Store.push_store () in
   Console.log [ ("push", push) ]; *)
   let modal = (Document.find_el_by_id G.document) (Jstr.v "note_modal") in
-  Option.iter
-    (fun elem ->
-      list_notes ();
-      El.(set_inline_style Style.display (Jstr.v "none") elem))
-    modal
+  match modal with
+    | None -> Lwt.return ()
+    | Some modal ->
+      let+ () = list_notes () in
+      El.set_inline_style El.Style.display (Jstr.v "none") modal
 
 let pull_str () =
-  Js_of_ocaml_lwt.Lwt_js_events.async (fun () ->
-    let pull = Store.pull_store () in
-    Console.log [ ("pull", pull) ];
-    Lwt.return ())
+  let* pull = Store.pull_store () in
+  Console.log [ ("pull", pull) ];
+  Lwt.return ()
 
 let main () =
-  pull_str ();
-  list_notes ();
+  let* () = pull_str () in
+  let* () = list_notes () in
   let open_modal_btn =
     (Document.find_el_by_id G.document) (Jstr.v "new_note")
   in
@@ -213,13 +210,13 @@ let main () =
   in
   Option.iter
     (fun elem ->
-      Ev.listen Ev.click (fun _ -> close_modal ()) (El.as_target elem))
+      Ev.listen Ev.click (fun _ -> Js_of_ocaml_lwt.Lwt_js_events.async close_modal) (El.as_target elem))
     close_modal_btn;
   let markdown_content =
     (Document.find_el_by_id G.document) (Jstr.v "markdown_content")
   in
-  Option.iter
-    (fun elem ->
+  match markdown_content with
+  | Some elem ->
       Ev.listen Ev.keyup
         (fun e ->
           let value =
@@ -227,7 +224,8 @@ let main () =
           in
           save_note_every_two_seconds value;
           preview_markdown value)
-        (El.as_target elem))
-    markdown_content
+        (El.as_target elem);
+     Lwt.return_unit
+  | None -> Lwt.return ()
 
-let () = main ()
+let () = Js_of_ocaml_lwt.Lwt_js_events.async main
